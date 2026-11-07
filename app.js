@@ -68,7 +68,12 @@
           const {error:writeError}=await cloudClient.from('study_data').upsert({user_id:uid,data,updated_at:new Date().toISOString()},{onConflict:'user_id'});
           if(writeError)throw writeError;
           cloudDirty=false;localStorage.setItem(lastSyncKey,new Date().toISOString());render();
-        }else if(row){data=row.data;saveLocalOnly();localStorage.setItem(ownerKey,uid);localStorage.setItem(lastSyncKey,new Date().toISOString());render();}
+        }else if(row){
+          // A local edit may have happened while the network request was in flight.
+          // Keep that edit and let its queued save reach Supabase instead of replacing it.
+          if(cloudDirty){queueCloudSave();return;}
+          data=row.data;saveLocalOnly();localStorage.setItem(ownerKey,uid);localStorage.setItem(lastSyncKey,new Date().toISOString());render();
+        }
         else{cloudDirty=true;queueCloudSave();}
       }
       setCloudMessage('Synced successfully.');
@@ -140,8 +145,11 @@
   function renderReflection() {
     const r=data.reflections[isoToday]||{};
     document.querySelectorAll('.mood-option').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mood===r.mood)));
-    $('journal-note').value=r.note||'';
-    $('journal-saved').textContent=r.saved?'Saved for today · stays on this device':'Your reflections stay on this device.';
+    // Do not replace a reflection draft while the user is typing in the field.
+    if(document.activeElement!==$('journal-note'))$('journal-note').value=r.note||'';
+    $('journal-saved').textContent=r.saved
+      ? (cloudUser?'Saved for today · synced with your account':'Saved for today · stays on this device')
+      : (cloudUser?'Draft saved automatically · syncing with your account':'Draft saved automatically on this device');
     const prev=Object.entries(data.reflections).filter(([d,r])=>d<isoToday&&(r.note||r.mood)).sort(([a],[b])=>b.localeCompare(a))[0];
     const el=$('previous-reflection');
     if(prev){el.classList.add('visible');el.innerHTML=`<strong>Last reflection · ${dateFmt(prev[0])}${prev[1].mood?` · ${moodName(prev[1].mood)}`:''}</strong><br>${esc(prev[1].note||'A check-in without a note.')}`;} else {el.classList.remove('visible');el.textContent='';}
@@ -190,6 +198,7 @@
   $('weekly-groups').addEventListener('change',e=>{const id=e.target.dataset.taskToggle;if(!id)return;const rows=data.weeklyTasks[planningWeek]?.[e.target.dataset.courseId]||[];const task=rows.find(t=>t.id===id);if(task)task.done=e.target.checked;save();renderWeeklyTasks();});
   $('weekly-groups').addEventListener('click',e=>{const b=e.target.closest('[data-task-delete]');if(!b)return;const rows=data.weeklyTasks[planningWeek]?.[b.dataset.courseId]||[];data.weeklyTasks[planningWeek][b.dataset.courseId]=rows.filter(t=>t.id!==b.dataset.taskDelete);save();renderWeeklyTasks();});
   document.querySelectorAll('.mood-option').forEach(b=>b.addEventListener('click',()=>{data.reflections[isoToday]={...data.reflections[isoToday],mood:b.dataset.mood,saved:false};save();renderReflection();}));
+  $('journal-note').addEventListener('input',()=>{data.reflections[isoToday]={...data.reflections[isoToday],note:$('journal-note').value,saved:false};saveLocalOnly();if(cloudUser){cloudDirty=true;queueCloudSave();}renderReflection();});
   $('save-journal').addEventListener('click',()=>{data.reflections[isoToday]={...data.reflections[isoToday],note:$('journal-note').value.trim(),saved:true};save();renderReflection();});
   $('gate-guide-btn').addEventListener('click',()=>$('gate-dialog').showModal());document.querySelectorAll('.dialog-close,.dialog-done').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
   $('export-btn').addEventListener('click',exportData);$('manage-data').addEventListener('click',()=>{const action=prompt('Your study data stays in this browser. Type “export” to save a backup or “import” to restore one.');if(action?.toLowerCase()==='export')exportData();if(action?.toLowerCase()==='import')$('import-file').click();});
