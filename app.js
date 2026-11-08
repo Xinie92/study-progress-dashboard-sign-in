@@ -126,12 +126,12 @@
     const days=weekDays(); const hrs=days.map(d=>data.sessions.filter(s=>s.date===d).reduce((n,s)=>n+s.minutes/60,0));
     const total=hrs.reduce((a,b)=>a+b,0); $('week-hours').textContent=total.toFixed(total%1?1:0); $('week-total-inline').textContent=`${total.toFixed(total%1?1:0)}h`;
     const count=data.sessions.filter(s=>days.includes(s.date)).length; $('week-sessions').textContent=count?`${count} focused ${count===1?'session':'sessions'}`:'No sessions yet';
-    $('week-chart').innerHTML=days.map((d,i)=>{const h=hrs[i];const height=h?Math.max(7,Math.min(100,h/Math.max(2,...hrs)*100)):3;return `<div class="chart-day" aria-label="${dateFmt(d)}: ${h.toFixed(1)} hours"><div class="chart-bar ${h?'has-time':''} ${d===isoToday?'today':''}" style="height:${height}%"></div></div>`;}).join('');
+    $('week-chart').innerHTML=days.map((d,i)=>{const h=hrs[i];const height=h?Math.max(7,Math.min(100,h/Math.max(2,...hrs)*100)):3;return `<div class="chart-day" data-day="${d}" role="button" tabindex="0" aria-label="${dateFmt(d)}: ${h.toFixed(1)} hours. Open daily breakdown"><div class="chart-bar ${h?'has-time':''} ${d===isoToday?'today':''}" style="height:${height}%"></div></div>`;}).join('');
     $('chart-labels').innerHTML=days.map(d=>`<span class="${d===isoToday?'is-today':''}">${new Date(`${d}T12:00:00`).toLocaleDateString(undefined,{weekday:'narrow'})}</span>`).join('');
     $('week-bars').innerHTML=hrs.map(h=>`<i style="height:${h?Math.max(4,Math.min(14,h/Math.max(2,...hrs)*14)):3}px"></i>`).join('');
   }
-  function openCourseTimeBreakdown(){
-    const days=weekDays();
+  function openCourseTimeBreakdown(day=null){
+    const days=day?[day]:weekDays();
     const totals=new Map(data.courses.map(c=>[c.id,{course:c,minutes:0}]));
     for(const session of data.sessions){
       if(!days.includes(session.date))continue;
@@ -141,9 +141,12 @@
     }
     const rows=[...totals.values()].sort((a,b)=>b.minutes-a.minutes||a.course.name.localeCompare(b.course.name));
     const total=rows.reduce((sum,row)=>sum+row.minutes,0);
-    $('course-time-total').textContent=`${(total/60).toFixed(total%60?1:0)} hours total this week`;
+    const formatDuration=minutes=>{const hours=Math.floor(minutes/60),rest=minutes%60;return hours?`${hours} h${rest?` ${rest} min`:''}`:`${rest} min`;};
+    $('course-time-eyebrow').textContent=day?`${dateFmt(day,{weekday:'long',month:'short',day:'numeric'})} · STUDY TIME`:'THIS WEEK · STUDY TIME';
+    $('course-time-title').textContent=day?'Daily time by course or goal':'Time by course or goal';
+    $('course-time-total').textContent=day?`${formatDuration(total)} logged that day`:`${formatDuration(total)} total this week`;
     const max=Math.max(1,...rows.map(row=>row.minutes));
-    $('course-time-list').innerHTML=rows.length?rows.map(({course,minutes})=>`<div class="course-time-row"><div class="course-time-label"><strong>${esc(course.name)}</strong><span>${minutes?`${(minutes/60).toFixed(minutes%60?1:0)} h`:'0 h'}</span></div><div class="course-time-track"><i style="width:${minutes?Math.max(2,minutes/max*100):0}%"></i></div></div>`).join(''):'<div class="empty-state">No courses or goals yet.</div>';
+    $('course-time-list').innerHTML=rows.length?rows.map(({course,minutes})=>`<div class="course-time-row"><div class="course-time-label"><strong>${esc(course.name)}</strong><span>${formatDuration(minutes)}</span></div><div class="course-time-track"><i style="width:${minutes?Math.max(2,minutes/max*100):0}%"></i></div></div>`).join(''):'<div class="empty-state">No courses or goals yet.</div>';
     $('course-time-dialog').showModal();
   }
   function renderGates() {
@@ -195,8 +198,8 @@
   window.addEventListener('pagehide',()=>finishActiveSession(Date.now(),false));
   function showSessionDialog(){if(!data.courses.length){$('course-dialog').showModal();return;}$('session-date').value=isoToday;$('session-dialog').showModal();}
   $('checkin-btn').addEventListener('click',startSession);$('timer-main').addEventListener('click',startSession);$('quick-plan-btn').addEventListener('click',showSessionDialog);$('plan-session-btn').addEventListener('click',showSessionDialog);
-  $('week-chart').addEventListener('click',openCourseTimeBreakdown);
-  $('week-chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openCourseTimeBreakdown();}});
+  $('week-chart').addEventListener('click',e=>{const bar=e.target.closest('[data-day]');openCourseTimeBreakdown(bar?.dataset.day||null);});
+  $('week-chart').addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const bar=e.target.closest('[data-day]');if(!bar)return;e.preventDefault();openCourseTimeBreakdown(bar.dataset.day);});
   $('cloud-account-btn').addEventListener('click',()=>{$('cloud-dialog-title').textContent=cloudUser?'Study sync':cloudClient?'Sign in to sync':'Set up study sync';setCloudMessage('');$('cloud-dialog').showModal();});
   $('cloud-auth-form').addEventListener('submit',async e=>{e.preventDefault();if(!cloudClient)return;setCloudMessage('Signing in…');const {error}=await cloudClient.auth.signInWithPassword({email:$('cloud-email').value.trim(),password:$('cloud-password').value});setCloudMessage(error?error.message:'Signed in. Loading your study data…');});
   $('cloud-signup').addEventListener('click',async()=>{if(!cloudClient||!$('cloud-auth-form').reportValidity())return;setCloudMessage('Creating your account…');const {data:result,error}=await cloudClient.auth.signUp({email:$('cloud-email').value.trim(),password:$('cloud-password').value});if(error)setCloudMessage(error.message);else if(!result.session)setCloudMessage('Check your email for the confirmation link, then sign in here.');else setCloudMessage('Account created. Syncing your study data…');});
