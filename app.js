@@ -130,6 +130,22 @@
     $('chart-labels').innerHTML=days.map(d=>`<span class="${d===isoToday?'is-today':''}">${new Date(`${d}T12:00:00`).toLocaleDateString(undefined,{weekday:'narrow'})}</span>`).join('');
     $('week-bars').innerHTML=hrs.map(h=>`<i style="height:${h?Math.max(4,Math.min(14,h/Math.max(2,...hrs)*14)):3}px"></i>`).join('');
   }
+  function openCourseTimeBreakdown(){
+    const days=weekDays();
+    const totals=new Map(data.courses.map(c=>[c.id,{course:c,minutes:0}]));
+    for(const session of data.sessions){
+      if(!days.includes(session.date))continue;
+      const item=totals.get(session.courseId);
+      if(item)item.minutes+=Number(session.minutes)||0;
+      else totals.set(session.courseId,{course:{name:'Other study'},minutes:Number(session.minutes)||0});
+    }
+    const rows=[...totals.values()].sort((a,b)=>b.minutes-a.minutes||a.course.name.localeCompare(b.course.name));
+    const total=rows.reduce((sum,row)=>sum+row.minutes,0);
+    $('course-time-total').textContent=`${(total/60).toFixed(total%60?1:0)} hours total this week`;
+    const max=Math.max(1,...rows.map(row=>row.minutes));
+    $('course-time-list').innerHTML=rows.length?rows.map(({course,minutes})=>`<div class="course-time-row"><div class="course-time-label"><strong>${esc(course.name)}</strong><span>${minutes?`${(minutes/60).toFixed(minutes%60?1:0)} h`:'0 h'}</span></div><div class="course-time-track"><i style="width:${minutes?Math.max(2,minutes/max*100):0}%"></i></div></div>`).join(''):'<div class="empty-state">No courses or goals yet.</div>';
+    $('course-time-dialog').showModal();
+  }
   function renderGates() {
     const courses=data.courses.filter(c=>c.kind==='current');
     $('gate-list').innerHTML=courses.length?courses.map(c=>`<div class="gate-row"><span class="gate-number">${String((c.gate||1)).padStart(2,'0')}</span><div class="gate-copy"><strong>${esc(c.name)}</strong><small>${['Getting started','Building understanding','Ready to apply'][(c.gate||1)-1]}</small></div><select class="gate-select" aria-label="Quality gate for ${esc(c.name)}" data-gate="${c.id}"><option value="1" ${c.gate===1?'selected':''}>01 · Starting</option><option value="2" ${c.gate===2?'selected':''}>02 · Building</option><option value="3" ${c.gate===3?'selected':''}>03 · Applying</option></select></div>`).join(''):`<div class="empty-state" style="padding:22px 10px">Add a this-semester course to set your learning gates.</div>`;
@@ -179,6 +195,8 @@
   window.addEventListener('pagehide',()=>finishActiveSession(Date.now(),false));
   function showSessionDialog(){if(!data.courses.length){$('course-dialog').showModal();return;}$('session-date').value=isoToday;$('session-dialog').showModal();}
   $('checkin-btn').addEventListener('click',startSession);$('timer-main').addEventListener('click',startSession);$('quick-plan-btn').addEventListener('click',showSessionDialog);$('plan-session-btn').addEventListener('click',showSessionDialog);
+  $('week-chart').addEventListener('click',openCourseTimeBreakdown);
+  $('week-chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openCourseTimeBreakdown();}});
   $('cloud-account-btn').addEventListener('click',()=>{$('cloud-dialog-title').textContent=cloudUser?'Study sync':cloudClient?'Sign in to sync':'Set up study sync';setCloudMessage('');$('cloud-dialog').showModal();});
   $('cloud-auth-form').addEventListener('submit',async e=>{e.preventDefault();if(!cloudClient)return;setCloudMessage('Signing in…');const {error}=await cloudClient.auth.signInWithPassword({email:$('cloud-email').value.trim(),password:$('cloud-password').value});setCloudMessage(error?error.message:'Signed in. Loading your study data…');});
   $('cloud-signup').addEventListener('click',async()=>{if(!cloudClient||!$('cloud-auth-form').reportValidity())return;setCloudMessage('Creating your account…');const {data:result,error}=await cloudClient.auth.signUp({email:$('cloud-email').value.trim(),password:$('cloud-password').value});if(error)setCloudMessage(error.message);else if(!result.session)setCloudMessage('Check your email for the confirmation link, then sign in here.');else setCloudMessage('Account created. Syncing your study data…');});
