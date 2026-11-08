@@ -19,6 +19,7 @@
   let ticker = null;
   let courseFilter = 'current';
   let planningWeek = weekStart(isoToday);
+  let chartWeek = weekStart(isoToday);
 
   function localDate(date) { const d = new Date(date); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
   function weekStart(date) { const d=new Date(`${date}T12:00:00`);d.setDate(d.getDate()-((d.getDay()+6)%7));return localDate(d); }
@@ -121,17 +122,28 @@
     $('manual-course').innerHTML=options || '<option value="" disabled selected>Add a course or skill first</option>';
     $('save-session').disabled=!data.courses.length;
   }
-  function weekDays() { const d=new Date(); const day=(d.getDay()+6)%7; const mon=new Date(d); mon.setDate(d.getDate()-day); return Array.from({length:7},(_,i)=>{const x=new Date(mon);x.setDate(mon.getDate()+i);return localDate(x);}); }
+  function weekDaysFrom(start) { return Array.from({length:7},(_,i)=>{const x=new Date(`${start}T12:00:00`);x.setDate(x.getDate()+i);return localDate(x);}); }
+  function weekLabel(start){const days=weekDaysFrom(start);const first=new Date(`${days[0]}T12:00:00`);const last=new Date(`${days[6]}T12:00:00`);const opts={month:'short',day:'numeric'};return start===weekStart(isoToday)?`This week · ${first.toLocaleDateString(undefined,opts)}–${last.toLocaleDateString(undefined,opts)}`:`${first.toLocaleDateString(undefined,opts)}–${last.toLocaleDateString(undefined,opts)}`;}
   function renderWeek() {
-    const days=weekDays(); const hrs=days.map(d=>data.sessions.filter(s=>s.date===d).reduce((n,s)=>n+s.minutes/60,0));
-    const total=hrs.reduce((a,b)=>a+b,0); $('week-hours').textContent=total.toFixed(total%1?1:0); $('week-total-inline').textContent=`${total.toFixed(total%1?1:0)}h`;
-    const count=data.sessions.filter(s=>days.includes(s.date)).length; $('week-sessions').textContent=count?`${count} focused ${count===1?'session':'sessions'}`:'No sessions yet';
+    const currentDays=weekDaysFrom(weekStart(isoToday));
+    const currentHours=currentDays.reduce((sum,d)=>sum+data.sessions.filter(s=>s.date===d).reduce((n,s)=>n+s.minutes/60,0),0);
+    $('week-hours').textContent=currentHours.toFixed(currentHours%1?1:0);
+    const currentCount=data.sessions.filter(s=>currentDays.includes(s.date)).length; $('week-sessions').textContent=currentCount?`${currentCount} focused ${currentCount===1?'session':'sessions'}`:'No sessions yet';
+    const dates=data.sessions.map(s=>s.date).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d));
+    const earliest=dates.length?weekStart(dates.sort()[0]):weekStart(isoToday);
+    const currentWeek=weekStart(isoToday);const weeks=[];
+    for(let cursor=earliest;cursor<=currentWeek;){weeks.push(cursor);const next=new Date(`${cursor}T12:00:00`);next.setDate(next.getDate()+7);cursor=localDate(next);}
+    if(!weeks.includes(chartWeek))chartWeek=currentWeek;
+    $('chart-week-select').innerHTML=[...weeks].reverse().map(start=>`<option value="${start}" ${start===chartWeek?'selected':''}>${weekLabel(start)}</option>`).join('');
+    const days=weekDaysFrom(chartWeek); const hrs=days.map(d=>data.sessions.filter(s=>s.date===d).reduce((n,s)=>n+s.minutes/60,0));
+    const total=hrs.reduce((a,b)=>a+b,0); $('week-total-inline').textContent=`${total.toFixed(total%1?1:0)}h`;
     $('week-chart').innerHTML=days.map((d,i)=>{const h=hrs[i];const height=h?Math.max(7,Math.min(100,h/Math.max(2,...hrs)*100)):3;return `<div class="chart-day" data-day="${d}" role="button" tabindex="0" aria-label="${dateFmt(d)}: ${h.toFixed(1)} hours. Open daily breakdown"><div class="chart-bar ${h?'has-time':''} ${d===isoToday?'today':''}" style="height:${height}%"></div></div>`;}).join('');
     $('chart-labels').innerHTML=days.map(d=>`<span class="${d===isoToday?'is-today':''}">${new Date(`${d}T12:00:00`).toLocaleDateString(undefined,{weekday:'narrow'})}</span>`).join('');
-    $('week-bars').innerHTML=hrs.map(h=>`<i style="height:${h?Math.max(4,Math.min(14,h/Math.max(2,...hrs)*14)):3}px"></i>`).join('');
+    const currentHrs=currentDays.map(d=>data.sessions.filter(s=>s.date===d).reduce((n,s)=>n+s.minutes/60,0));
+    $('week-bars').innerHTML=currentHrs.map(h=>`<i style="height:${h?Math.max(4,Math.min(14,h/Math.max(2,...currentHrs)*14)):3}px"></i>`).join('');
   }
   function openCourseTimeBreakdown(day=null){
-    const days=day?[day]:weekDays();
+    const days=day?[day]:weekDaysFrom(chartWeek);
     const totals=new Map(data.courses.map(c=>[c.id,{course:c,minutes:0}]));
     for(const session of data.sessions){
       if(!days.includes(session.date))continue;
@@ -142,7 +154,7 @@
     const rows=[...totals.values()].sort((a,b)=>b.minutes-a.minutes||a.course.name.localeCompare(b.course.name));
     const total=rows.reduce((sum,row)=>sum+row.minutes,0);
     const formatDuration=minutes=>{const hours=Math.floor(minutes/60),rest=minutes%60;return hours?`${hours} h${rest?` ${rest} min`:''}`:`${rest} min`;};
-    $('course-time-eyebrow').textContent=day?`${dateFmt(day,{weekday:'long',month:'short',day:'numeric'})} · STUDY TIME`:'THIS WEEK · STUDY TIME';
+    $('course-time-eyebrow').textContent=day?`${dateFmt(day,{weekday:'long',month:'short',day:'numeric'})} · STUDY TIME`:`${weekLabel(chartWeek)} · STUDY TIME`;
     $('course-time-title').textContent=day?'Daily time by course or goal':'Time by course or goal';
     $('course-time-total').textContent=day?`${formatDuration(total)} logged that day`:`${formatDuration(total)} total this week`;
     const max=Math.max(1,...rows.map(row=>row.minutes));
@@ -200,6 +212,7 @@
   $('checkin-btn').addEventListener('click',startSession);$('timer-main').addEventListener('click',startSession);$('quick-plan-btn').addEventListener('click',showSessionDialog);$('plan-session-btn').addEventListener('click',showSessionDialog);
   $('week-chart').addEventListener('click',e=>{const bar=e.target.closest('[data-day]');openCourseTimeBreakdown(bar?.dataset.day||null);});
   $('week-chart').addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const bar=e.target.closest('[data-day]');if(!bar)return;e.preventDefault();openCourseTimeBreakdown(bar.dataset.day);});
+  $('chart-week-select').addEventListener('change',e=>{chartWeek=e.target.value;renderWeek();});
   $('cloud-account-btn').addEventListener('click',()=>{$('cloud-dialog-title').textContent=cloudUser?'Study sync':cloudClient?'Sign in to sync':'Set up study sync';setCloudMessage('');$('cloud-dialog').showModal();});
   $('cloud-auth-form').addEventListener('submit',async e=>{e.preventDefault();if(!cloudClient)return;setCloudMessage('Signing in…');const {error}=await cloudClient.auth.signInWithPassword({email:$('cloud-email').value.trim(),password:$('cloud-password').value});setCloudMessage(error?error.message:'Signed in. Loading your study data…');});
   $('cloud-signup').addEventListener('click',async()=>{if(!cloudClient||!$('cloud-auth-form').reportValidity())return;setCloudMessage('Creating your account…');const {data:result,error}=await cloudClient.auth.signUp({email:$('cloud-email').value.trim(),password:$('cloud-password').value});if(error)setCloudMessage(error.message);else if(!result.session)setCloudMessage('Check your email for the confirmation link, then sign in here.');else setCloudMessage('Account created. Syncing your study data…');});
